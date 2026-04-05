@@ -44,7 +44,7 @@ This guide targets a public dual-stack server with:
 - one routed `/64` IPv6 subnet
 - one NIC (`eth0`)
 - Docker and Traefik on the host
-- Dokploy running as a single-node manager
+- a Dokploy-compatible deploy target, managed by Dokploy from another server
 
 ## Installation
 
@@ -251,12 +251,11 @@ Default SSH jail location:
 
 ### Firewall
 
-For a single-node Dokploy host, open only:
+For a single-node Dokploy deploy target, open only:
 
 - `22/tcp` for SSH
 - `80/tcp` for HTTP and ACME HTTP challenge
 - `443/tcp` and `443/udp` for HTTPS and HTTP/3
-- `3000/tcp` for the Dokploy UI
 
 Example host firewall rules:
 
@@ -267,7 +266,7 @@ iptables -P FORWARD DROP
 iptables -P OUTPUT ACCEPT
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-iptables -A INPUT -p tcp -m multiport --dports 22,80,443,3000 -j ACCEPT
+iptables -A INPUT -p tcp -m multiport --dports 22,80,443 -j ACCEPT
 
 ip6tables -F
 ip6tables -P INPUT DROP
@@ -275,7 +274,7 @@ ip6tables -P FORWARD DROP
 ip6tables -P OUTPUT ACCEPT
 ip6tables -A INPUT -i lo -j ACCEPT
 ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-ip6tables -A INPUT -p tcp -m multiport --dports 22,80,443,3000 -j ACCEPT
+ip6tables -A INPUT -p tcp -m multiport --dports 22,80,443 -j ACCEPT
 ip6tables -A INPUT -p udp --dport 443 -j ACCEPT
 ```
 
@@ -313,11 +312,11 @@ If `docker info` fails right after boot, wait a few seconds and run it again. Do
 
 ### Dokploy compatibility
 
-This repository includes [`dokploy-script.sh`](./dokploy-script.sh), adapted for Alpine so the host can be prepared for Dokploy on Hetzner.
+This repository includes [`dokploy-script.sh`](./dokploy-script.sh), adapted for Alpine so the host can be prepared as a Dokploy deploy target on Hetzner.
 
 Before running it:
 
-- keep ports `80`, `443`, and `3000` free
+- keep ports `80` and `443` free
 - make sure the host already has working IPv4 and IPv6
 - create both `A` and `AAAA` DNS records for any domains that Traefik should serve
 - use the server's primary public IPv4 for `ADVERTISE_ADDR`
@@ -336,7 +335,6 @@ What the script prepares:
 - Docker daemon startup on OpenRC
 - Docker Swarm manager initialization
 - the `dokploy-network` overlay network
-- `dokploy-postgres`, `dokploy-redis`, and `dokploy` swarm services
 - Traefik and Dokploy filesystem layout under `/etc/dokploy`
 - build tooling such as RClone, Nixpacks, Buildpacks, and Railpack
 
@@ -344,8 +342,8 @@ Keep in mind:
 
 - the recommended default is still a public IPv4 `ADVERTISE_ADDR`
 - published apps can be reached over both IPv4 and IPv6 as long as DNS points both records at the server
-- the script deploys Dokploy on `3000/tcp`
-- if you want Let's Encrypt certificates, export `LETSENCRYPT_EMAIL=you@example.com` before running the script
+- this script does not install the Dokploy web UI or its backing services
+- if you want Traefik to request Let's Encrypt certificates on this host, export `LETSENCRYPT_EMAIL=you@example.com` before running the script
 
 ### Validation
 
@@ -359,7 +357,7 @@ ping -6 -c 1 github.com
 docker info
 docker network ls | grep dokploy-network
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-ss -tulpen | grep -E ':(80|443|3000)\b'
+ss -tulpen | grep -E ':(80|443)\b'
 ```
 
 On a healthy Dokploy-ready host you should see:
@@ -371,7 +369,7 @@ On a healthy Dokploy-ready host you should see:
 - `dokploy-network` created
 - Traefik binding `80/tcp`, `443/tcp`, and `443/udp`
 
-`3000/tcp` should listen once the script finishes and the Dokploy service becomes healthy.
+`3000/tcp` should stay free on this host unless you choose to run a separate service there.
 
 Reboot once after everything is in place and re-run the same checks. Docker, networking, and Traefik should all survive a reboot cleanly.
 

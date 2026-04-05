@@ -3,11 +3,7 @@
 set -euo pipefail
 DOCKER_VERSION=28.5.0
 TRAEFIK_VERSION=3.6.7
-POSTGRES_VERSION=16
-REDIS_VERSION=7
-DOKPLOY_IMAGE="dokploy/dokploy:${DOKPLOY_VERSION:-latest}"
 LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-admin@localhost.invalid}"
-TZ_VALUE="${TZ:-UTC}"
 OS_TYPE=$(grep -w "ID" /etc/os-release | cut -d "=" -f 2 | tr -d '"')
 SYS_ARCH=$(uname -m)
 
@@ -159,96 +155,8 @@ ensure_docker_running() {
   wait_for_docker
 }
 
-docker_secret_exists() {
-  docker secret inspect "$1" >/dev/null 2>&1
-}
-
 docker_service_exists() {
   docker service inspect "$1" >/dev/null 2>&1
-}
-
-create_or_rotate_postgres_secret() {
-  local secret_name="dokploy_postgres_password"
-  local password=""
-
-  if docker_secret_exists "$secret_name"; then
-    echo "Docker secret ${secret_name} already exists ✅"
-    return 0
-  fi
-
-  password=$(openssl rand -base64 32 | tr -d '=+/' | cut -c1-32)
-  printf '%s' "$password" | docker secret create "$secret_name" - >/dev/null
-  echo "Docker secret ${secret_name} created ✅"
-}
-
-deploy_support_services() {
-  if docker_service_exists dokploy-postgres; then
-    echo "Service dokploy-postgres already exists ✅"
-  else
-    docker service create \
-      --name dokploy-postgres \
-      --constraint 'node.role==manager' \
-      --network dokploy-network \
-      --env POSTGRES_USER=dokploy \
-      --env POSTGRES_DB=dokploy \
-      --secret source=dokploy_postgres_password,target=/run/secrets/postgres_password \
-      --env POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password \
-      --mount type=volume,source=dokploy-postgres,target=/var/lib/postgresql/data \
-      "postgres:${POSTGRES_VERSION}" >/dev/null
-    echo "Service dokploy-postgres created ✅"
-  fi
-
-  if docker_service_exists dokploy-redis; then
-    echo "Service dokploy-redis already exists ✅"
-  else
-    docker service create \
-      --name dokploy-redis \
-      --constraint 'node.role==manager' \
-      --network dokploy-network \
-      --mount type=volume,source=dokploy-redis,target=/data \
-      "redis:${REDIS_VERSION}" >/dev/null
-    echo "Service dokploy-redis created ✅"
-  fi
-}
-
-deploy_or_update_dokploy() {
-  if docker_service_exists dokploy; then
-    docker service update \
-      --image "$DOKPLOY_IMAGE" \
-      --env-add "ADVERTISE_ADDR=${advertise_addr}" \
-      --env-add "POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password" \
-      --env-add "TZ=${TZ_VALUE}" \
-      dokploy >/dev/null
-    echo "Service dokploy updated ✅"
-  else
-    docker service create \
-      --name dokploy \
-      --replicas 1 \
-      --network dokploy-network \
-      --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-      --mount type=bind,source=/etc/dokploy,target=/etc/dokploy \
-      --mount type=volume,source=dokploy,target=/root/.docker \
-      --secret source=dokploy_postgres_password,target=/run/secrets/postgres_password \
-      --publish published=3000,target=3000,mode=host \
-      --update-parallelism 1 \
-      --update-order stop-first \
-      --constraint 'node.role == manager' \
-      --env "ADVERTISE_ADDR=${advertise_addr}" \
-      --env "POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password" \
-      --env "TZ=${TZ_VALUE}" \
-      "$DOKPLOY_IMAGE" >/dev/null
-    echo "Service dokploy created ✅"
-  fi
-}
-
-format_ip_for_url() {
-  local ip="$1"
-
-  if echo "$ip" | grep -q ':'; then
-    printf '[%s]\n' "$ip"
-  else
-    printf '%s\n' "$ip"
-  fi
 }
 
 case "$OS_TYPE" in
@@ -306,17 +214,6 @@ if port_in_use 443; then
     echo "Traefik already appears to be using port 443 ✅"
   else
     echo "Something is already running on port 443" >&2
-    exit 1
-  fi
-fi
-
-# check if something is running on port 3000
-if port_in_use 3000; then
-  if command_exists docker && { docker service inspect dokploy >/dev/null 2>&1 || docker inspect dokploy >/dev/null 2>&1; }; then
-    echo "Dokploy already appears to be using port 3000 ✅"
-  else
-    echo "Something is already running on port 3000" >&2
-    echo "Dokploy requires port 3000 to be available." >&2
     exit 1
   fi
 fi
@@ -585,19 +482,7 @@ else
   echo "Traefik version $TRAEFIK_VERSION installed ✅"
 fi
 
-echo -e "11. Deploying Dokploy Services"
-
-create_or_rotate_postgres_secret
-deploy_support_services
-deploy_or_update_dokploy
-
-formatted_addr=$(format_ip_for_url "$advertise_addr")
-echo ""
-echo "Dokploy is installed ✅"
-echo "Wait 15-30 seconds for the services to become healthy."
-echo "Open: http://${formatted_addr}:3000"
-
-echo -e "12. Installing Nixpacks"
+echo -e "11. Installing Nixpacks"
 
 if command_exists nixpacks; then
   echo "Nixpacks already installed ✅"
@@ -607,7 +492,7 @@ else
   echo "Nixpacks version $NIXPACKS_VERSION installed ✅"
 fi
 
-echo -e "13. Installing Buildpacks"
+echo -e "12. Installing Buildpacks"
 
 SUFFIX=""
 if [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
@@ -621,7 +506,7 @@ else
   echo "Buildpacks version $BUILDPACKS_VERSION installed ✅"
 fi
 
-echo -e "14. Installing Railpack"
+echo -e "13. Installing Railpack"
 
 if command_exists railpack; then
   echo "Railpack already installed ✅"
