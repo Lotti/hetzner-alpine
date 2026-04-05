@@ -119,7 +119,7 @@ Update the system and install a useful baseline:
 ```bash
 apk update
 apk upgrade
-apk add bash bash-completion bind-tools ca-certificates curl git htop jq lsof nano procps shadow sudo tcpdump unzip vim wget iptables ip6tables iproute2-minimal iproute2-ss
+apk add bash bash-completion bind-tools ca-certificates curl git htop jq lsof nano nftables nftables-openrc procps shadow sudo tcpdump unzip vim wget iproute2-minimal iproute2-ss
 update-ca-certificates
 ```
 
@@ -257,36 +257,49 @@ For a single-node Dokploy deploy target, open only:
 - `80/tcp` for HTTP and ACME HTTP challenge
 - `443/tcp` and `443/udp` for HTTPS and HTTP/3
 
-Example host firewall rules:
+Example host firewall rules using `nftables`:
 
 ```bash
-iptables -F
-iptables -P INPUT DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-iptables -A INPUT -p tcp -m multiport --dports 22,80,443 -j ACCEPT
+cat <<'EOF' > /etc/nftables.nft
+#!/usr/sbin/nft -f
 
-ip6tables -F
-ip6tables -P INPUT DROP
-ip6tables -P FORWARD DROP
-ip6tables -P OUTPUT ACCEPT
-ip6tables -A INPUT -i lo -j ACCEPT
-ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-ip6tables -A INPUT -p tcp -m multiport --dports 22,80,443 -j ACCEPT
-ip6tables -A INPUT -p udp --dport 443 -j ACCEPT
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority 0;
+    policy drop;
+
+    iif "lo" accept
+    ct state established,related accept
+
+    # Keep ICMP/ICMPv6 working for IPv4 troubleshooting and IPv6 control traffic.
+    ip protocol icmp accept
+    meta l4proto ipv6-icmp accept
+
+    tcp dport { 22, 80, 443 } accept
+    udp dport 443 accept
+  }
+
+  chain forward {
+    type filter hook forward priority 0;
+    policy drop;
+  }
+
+  chain output {
+    type filter hook output priority 0;
+    policy accept;
+  }
+}
+EOF
 ```
 
-Save and enable both services:
+Load and enable the firewall:
 
 ```bash
-/etc/init.d/iptables save
-/etc/init.d/ip6tables save
-rc-update add iptables default
-rc-update add ip6tables default
-rc-service iptables start
-rc-service ip6tables start
+nft -f /etc/nftables.nft
+rc-update add nftables boot
+rc-service nftables start
 ```
 
 If you later turn this into a multi-node swarm, also allow:
@@ -295,6 +308,8 @@ If you later turn this into a multi-node swarm, also allow:
 - `7946/tcp`
 - `7946/udp`
 - `4789/udp`
+
+You can add those ports by extending the `tcp dport { ... }` and `udp dport ...` rules in `/etc/nftables.nft`.
 
 ### Docker
 
