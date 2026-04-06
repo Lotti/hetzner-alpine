@@ -340,7 +340,7 @@ Export the advertise address and run the script as `root`:
 
 ```bash
 chmod +x ./dokploy-script.sh
-export ADVERTISE_ADDR="$(ip -4 -o addr show dev eth0 scope global | awk '{split($4,a,\"/\"); print a[1]; exit}')"
+export ADVERTISE_ADDR="$(ip -4 -o addr show dev eth0 scope global | awk 'NR==1 {split($4, a, "/"); print a[1]; exit}')"
 ./dokploy-script.sh
 ```
 

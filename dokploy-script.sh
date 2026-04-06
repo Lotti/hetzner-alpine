@@ -164,7 +164,7 @@ arch)
   pacman -Sy --noconfirm --needed curl wget git git-lfs jq openssl >/dev/null || true
   ;;
 alpine)
-  sed -i '/^#.*/community/s/^#//' /etc/apk/repositories
+  sed -i '/^#.*community/s/^#//' /etc/apk/repositories
   apk update >/dev/null
   apk add bash ca-certificates curl wget git git-lfs jq openssl sudo unzip tar iproute2-minimal iproute2-ss >/dev/null
   update-ca-certificates >/dev/null 2>&1 || true
